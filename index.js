@@ -19,6 +19,8 @@ const client = new MongoClient(uri, {
   }
 });
 
+const artifactsCollection = client.db('ArtifactsDB').collection('Artifacts')
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -35,6 +37,12 @@ run().catch(console.dir);
 
 app.get('/', (req, res)=>{
     res.send('server is running')
+})
+
+app.get('/all-artifacts', async(req, res) =>{
+  const cursor = artifactsCollection.find()
+        const result = await cursor.toArray()
+        res.send(result)
 })
 
 app.listen(port, () =>{
