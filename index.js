@@ -164,6 +164,86 @@ app.get('/my-artifacts', verifyToken, async (req, res) => {
 });
 
 
+// Update artifact (only owner can update)
+app.patch('/update-artifact/:id', verifyToken, async (req, res) => {
+  try {
+    const artifactId = req.params.id;
+    const updates = req.body;
+    const adderEmail = req.user.email;
+    
+    // First verify the artifact belongs to the user
+    const artifact = await artifactsCollection.findOne({
+      _id: new ObjectId(artifactId),
+      adderEmail: adderEmail
+    });
+    
+    if (!artifact) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'You can only update your own artifacts' 
+      });
+    }
+    
+    const result = await artifactsCollection.updateOne(
+      { _id: new ObjectId(artifactId) },
+      { $set: updates }
+    );
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Artifact updated successfully',
+      result 
+    });
+    
+  } catch (error) {
+    console.error('Error updating artifact:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update artifact' 
+    });
+  }
+});
+
+
+// Delete artifact (only owner can delete)
+app.delete('/delete-artifact/:id', verifyToken, async (req, res) => {
+  try {
+    const artifactId = req.params.id;
+    const adderEmail = req.user.email;
+    
+    // Verify ownership
+    const artifact = await artifactsCollection.findOne({
+      _id: new ObjectId(artifactId),
+      adderEmail: adderEmail
+    });
+    
+    if (!artifact) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'You can only delete your own artifacts' 
+      });
+    }
+    
+    const result = await artifactsCollection.deleteOne({ 
+      _id: new ObjectId(artifactId) 
+    });
+    
+    res.status(200).json({ 
+      success: true, 
+      message: 'Artifact deleted successfully',
+      result 
+    });
+    
+  } catch (error) {
+    console.error('Error deleting artifact:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete artifact' 
+    });
+  }
+});
+
+
 app.post('/logout', (req, res) => {
   try {
     console.log('Attempting logout. Current cookies:', req.cookies);
