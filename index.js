@@ -45,6 +45,76 @@ app.get('/', (req, res) => {
   res.send('Artifacts Server is Running');
 });
 
+// Middleware to verify JWT token
+const verifyToken = (req, res, next) => {
+  try {
+    // 1. Get token from cookies
+    const token = req.cookies.token;
+    console.log('Token from cookies:', token); // Debug log
+    
+    if (!token) {
+      console.log('No token found');
+      return res.status(401).json({ success: false, message: 'Unauthorized: No token provided' });
+    }
+
+    // 2. Verify token
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+      if (err) {
+        console.log('Token verification failed:', err.message);
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Unauthorized: Invalid token',
+          error: err.message 
+        });
+      }
+      
+      // 3. Attach decoded user to request
+      console.log('Token verified successfully. User:', decoded);
+      req.user = decoded;
+      next();
+    });
+    
+  } catch (error) {
+    console.error('Middleware error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error' 
+    });
+  }
+};
+
+// devbbuging endpoint
+
+app.get('/debug-check-token', (req, res) => {
+  console.log('Received cookies:', req.cookies);
+  const token = req.cookies.token;
+  
+  if (!token) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'No token found in cookies',
+      receivedCookies: req.cookies 
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+    res.json({ 
+      success: true, 
+      user: decoded,
+      tokenExists: !!token
+    });
+  } catch (err) {
+    res.status(401).json({ 
+      success: false, 
+      error: 'Invalid token',
+      details: err.message 
+    });
+  }
+});
+
+// devbbuging endpoint
+
 // Authentication Endpoints
 app.post('/jwt', (req, res) => {
   try {
@@ -63,14 +133,65 @@ app.post('/jwt', (req, res) => {
   }
 });
 
-app.post('/logout', (req, res) => {
-  res.clearCookie('token', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-  }).send({ success: 'logout successfully' });
+// Get artifacts by logged-in user
+app.get('/my-artifacts', verifyToken, async (req, res) => {
+  try {
+    const adderEmail = req.user.email; // From verified token
+    const artifacts = await artifactsCollection.find({ 
+      adderEmail: adderEmail 
+    }).toArray();
+    
+    if (artifacts.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        message: 'No artifacts found for this user',
+        artifacts: [] 
+      });
+    }
+    
+    res.status(200).json({ 
+      success: true, 
+      artifacts 
+    });
+    
+  } catch (error) {
+    console.error('Error fetching user artifacts:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch user artifacts' 
+    });
+  }
 });
 
+
+app.post('/logout', (req, res) => {
+  try {
+    console.log('Attempting logout. Current cookies:', req.cookies);
+    
+    // Clear token cookie with EXACT same options used when setting it
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      path: '/',
+      domain: 'localhost' // Explicitly set domain
+    });
+    
+    console.log('Cookie should be cleared. Response headers:', res.getHeaders());
+    res.json({ 
+      success: true,
+      message: 'Logout successful',
+      cookiesCleared: true
+    });
+    
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Logout failed' 
+    });
+  }
+});
 
 
 // Artifacts Endpoints
