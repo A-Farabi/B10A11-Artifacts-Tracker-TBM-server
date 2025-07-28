@@ -1,18 +1,22 @@
 const express = require('express');
-const cors = require('cors')
+const cors = require('cors');
 const app = express();
-require('dotenv').config()
-app.use(cors())
-app.use(express.json());
-const port = process.env.PORT || 5000
-
-
-
+require('dotenv').config();
+const cookieParser = require('cookie-parser');
+const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const axios = require('axios');
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.mrtaf.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
+const port = process.env.PORT || 5000;
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+// Middleware
+app.use(cookieParser());
+app.use(cors({
+  origin: 'http://localhost:5173', // Your React app's origin
+  credentials: true
+}));
+app.use(express.json());
+
+// MongoDB Connection
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.mrtaf.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -21,45 +25,89 @@ const client = new MongoClient(uri, {
   }
 });
 
-const artifactsCollection = client.db('ArtifactsDB').collection('Artifacts')
+// Database Collections
+const artifactsCollection = client.db('ArtifactsDB').collection('Artifacts');
 const likedArtifactsCollection = client.db('ArtifactsDB').collection('LikedArtifacts');
+
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
-    // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+  } catch (error) {
+    console.error("MongoDB connection error:", error);
   }
 }
 run().catch(console.dir);
 
-app.get('/', (req, res)=>{
-    res.send('server is running')
-})
+// Routes
+app.get('/', (req, res) => {
+  res.send('Artifacts Server is Running');
+});
 
-app.get('/all-artifacts', async(req, res) =>{
-  const cursor = artifactsCollection.find()
-        const result = await cursor.toArray()
-        res.send(result)
-})
+// Authentication Endpoints
+app.post('/jwt', (req, res) => {
+  try {
+    const user = req.body;
+    const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '5h' });
+    
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 5 * 60 * 60 * 1000 // 5 hours
+    }).send({ success: true });
+  } catch (error) {
+    console.error('JWT generation error:', error);
+    res.status(500).send({ error: 'Failed to generate token' });
+  }
+});
 
-app.get('/all-artifacts/:id', async(req, res)=>{
-  const artifactId = req.params.id
-  const result =await artifactsCollection.findOne(new ObjectId(artifactId))
-  res.send(result)
-})
+app.post('/logout', (req, res) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  }).send({ success: 'logout successfully' });
+});
 
-app.post('/add-artifacts', async(req, res)=>{
-  const newArtifact = req.body
-  const result = await artifactsCollection.insertOne(newArtifact)
-  res.send(result)
-})
 
-// Check like status, wheter is liked or not
+
+// Artifacts Endpoints
+app.get('/all-artifacts', async (req, res) => {
+  try {
+    const cursor = artifactsCollection.find();
+    const result = await cursor.toArray();
+    res.send(result);
+  } catch (error) {
+    console.error('Error fetching artifacts:', error);
+    res.status(500).send({ error: 'Failed to fetch artifacts' });
+  }
+});
+
+app.get('/all-artifacts/:id', async (req, res) => {
+  try {
+    const artifactId = req.params.id;
+    const result = await artifactsCollection.findOne(new ObjectId(artifactId));
+    res.send(result);
+  } catch (error) {
+    console.error('Error fetching artifact:', error);
+    res.status(500).send({ error: 'Failed to fetch artifact' });
+  }
+});
+
+app.post('/add-artifacts', async (req, res) => {
+  try {
+    const newArtifact = req.body;
+    const result = await artifactsCollection.insertOne(newArtifact);
+    res.send(result);
+  } catch (error) {
+    console.error('Error adding artifact:', error);
+    res.status(500).send({ error: 'Failed to add artifact' });
+  }
+});
+
+// Like Endpoints
 app.get('/artifacts/:id/like-status', async (req, res) => {
   try {
     const { id } = req.params;
@@ -77,28 +125,24 @@ app.get('/artifacts/:id/like-status', async (req, res) => {
   }
 });
 
-// Like/Unlike an artifact
 app.patch('/artifacts/:id/like', async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.body; // You'll need to implement user authentication
+    const { userId } = req.body;
 
-    // Check if already liked
     const alreadyLiked = await likedArtifactsCollection.findOne({
       artifactId: id,
       userId
     });
 
     if (alreadyLiked) {
-      // Unlike
       await likedArtifactsCollection.deleteOne({ _id: alreadyLiked._id });
       await artifactsCollection.updateOne(
         { _id: new ObjectId(id) },
         { $inc: { likeCount: -1 } }
       );
-      return res.json({ liked: false });
+      res.json({ liked: false });
     } else {
-      // Like
       await likedArtifactsCollection.insertOne({
         artifactId: id,
         userId,
@@ -108,7 +152,7 @@ app.patch('/artifacts/:id/like', async (req, res) => {
         { _id: new ObjectId(id) },
         { $inc: { likeCount: 1 } }
       );
-      return res.json({ liked: true });
+      res.json({ liked: true });
     }
   } catch (error) {
     console.error('Error updating like:', error);
@@ -116,16 +160,12 @@ app.patch('/artifacts/:id/like', async (req, res) => {
   }
 });
 
-// Get liked artifacts for a user
 app.get('/users/:userId/liked-artifacts', async (req, res) => {
   try {
     const { userId } = req.params;
-    
-    // Get liked artifact IDs
     const likedItems = await likedArtifactsCollection.find({ userId }).toArray();
     const artifactIds = likedItems.map(item => new ObjectId(item.artifactId));
     
-    // Get full artifact details
     const artifacts = await artifactsCollection.find({
       _id: { $in: artifactIds }
     }).toArray();
@@ -137,24 +177,8 @@ app.get('/users/:userId/liked-artifacts', async (req, res) => {
   }
 });
 
-// Check like status
-app.get('/artifacts/:id/like-status', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { userId } = req.query;
-    
-    const liked = await likedArtifactsCollection.findOne({
-      artifactId: id,
-      userId
-    });
-    
-    res.json({ liked: !!liked });
-  } catch (error) {
-    console.error('Error checking like status:', error);
-    res.status(500).json({ error: 'Failed to check like status' });
-  }
+// Start Server
+app.listen(port, () => {
+  console.log(`Server is running on PORT: ${port}`);
+    console.log('JWT Secret:', process.env.ACCESS_TOKEN_SECRET ? 'Configured' : 'MISSING!');
 });
-
-app.listen(port, () =>{
-    console.log(`server is running on PORT: ${port}`);
-})
