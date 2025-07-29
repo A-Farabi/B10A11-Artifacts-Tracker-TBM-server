@@ -10,7 +10,11 @@ const port = process.env.PORT || 5000;
 // Middleware
 app.use(cookieParser());
 app.use(cors({
-  origin: 'http://localhost:5173', // Your React app's origin
+  //React app's origin
+  origin: ['http://localhost:5173',
+    'https://b10a11-artifacts-tracker-tbm.web.app',
+    'https://b10a11-artifacts-tracker-tbm.firebaseapp.com'
+  ],
   credentials: true
 }));
 app.use(express.json());
@@ -124,7 +128,7 @@ app.post('/jwt', (req, res) => {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
       maxAge: 5 * 60 * 60 * 1000 // 5 hours
     }).send({ success: true });
   } catch (error) {
@@ -252,9 +256,9 @@ app.post('/logout', (req, res) => {
     res.clearCookie('token', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
       path: '/',
-      domain: 'localhost' // Explicitly set domain
+      // domain: 'localhost' // Explicitly set domain
     });
     
     console.log('Cookie should be cleared. Response headers:', res.getHeaders());
