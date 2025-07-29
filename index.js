@@ -378,6 +378,23 @@ app.get('/users/:userId/liked-artifacts', async (req, res) => {
   }
 });
 
+// New endpoint to get most liked artifacts
+app.get('/most-liked-artifacts', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 6;
+    const artifacts = await artifactsCollection
+      .find()
+      .sort({ likeCount: -1 }) // Sort by likeCount in descending order
+      .limit(limit)
+      .toArray();
+    
+    res.json(artifacts);
+  } catch (error) {
+    console.error('Error fetching most liked artifacts:', error);
+    res.status(500).json({ error: 'Failed to fetch most liked artifacts' });
+  }
+});
+
 // Start Server
 app.listen(port, () => {
   console.log(`Server is running on PORT: ${port}`);
